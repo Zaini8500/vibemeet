@@ -1,0 +1,155 @@
+package com.vibemeet.app
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.vibemeet.app.data.TokenStore
+import com.vibemeet.app.ui.screens.*
+import com.vibemeet.app.ui.theme.VibeMeetTheme
+import com.vibemeet.app.ui.viewmodel.*
+import com.vibemeet.app.webrtc.CallState
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+@AndroidEntryPoint class MainActivity : ComponentActivity() {
+    @Inject lateinit var tokens: TokenStore
+    private var pendingMatching by mutableStateOf(false)
+    // Google idToken delivered by the launcher; the composable layer then
+    // hands it to AuthViewModel.google() (existing user -> home, new user ->
+    // onboarding, then /auth/google/complete). The token is never stored.
+    private var googleIdTokenResult by mutableStateOf<String?>(null)
+    private lateinit var googleClient: GoogleSignInClient
+    private val googleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
+            account.idToken?.let { googleIdTokenResult = it }
+        } catch (_: Exception) { /* user cancelled or sign-in failed; AuthViewModel error state is set on next attempt */ }
+    }
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.CAMERA] == true && granted[Manifest.permission.RECORD_AUDIO] == true) pendingMatching = true
+    }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // IMPORTANT: requestIdToken needs the *Web* OAuth client ID from Google
+        // Cloud Console (not the Android client ID). Replace
+        // GOOGLE_SERVER_CLIENT_ID in app/build.gradle.kts before release.
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(BuildConfig.GOOGLE_SERVER_CLIENT_ID).requestEmail().build()
+        googleClient = GoogleSignIn.getClient(this, gso)
+        setContent {
+            VibeMeetTheme {
+                val nav = rememberNavController()
+                val scope = rememberCoroutineScope()
+                val authVm: AuthViewModel = hiltViewModel()
+                val homeVm: HomeViewModel = hiltViewModel()
+                val matchVm: MatchingViewModel = hiltViewModel()
+                val videoVm: VideoViewModel = hiltViewModel()
+                val profile by homeVm.profile.collectAsState()
+                val callState by videoVm.callState.collectAsState()
+                val remoteTrack by videoVm.webrtc.remoteTrack.collectAsState()
+                val localTrack by videoVm.webrtc.localTrackFlow.collectAsState()
+                var micOn by remember { mutableStateOf(true) }
+                var camOn by remember { mutableStateOf(true) }
+                var pendingEmail by remember { mutableStateOf("") }
+                var pendingPassword by remember { mutableStateOf("") }
+                var pendingMatch by remember { mutableStateOf<Triple<String, String, Boolean>?>(null) }
+                // Signalling is connected when Home is entered (after login or
+                // after the splash token check). match_found navigates to video
+                // and starts the real WebRTC call (initiator creates the offer).
+                LaunchedEffect(pendingMatch) {
+                    pendingMatch?.let { (sid, pid, initiator) -> videoVm.startCall(sid, pid, initiator); pendingMatch = null }
+                }
+                LaunchedEffect(pendingMatching) {
+                    if (pendingMatching) { pendingMatching = false; nav.navigate("matching") }
+                }
+                LaunchedEffect(googleIdTokenResult) {
+                    googleIdTokenResult?.let { idToken ->
+                        authVm.google(idToken, onAuthed = { homeVm.load(); nav.navigate("home") }, onNeedsOnboarding = { nav.navigate("onboarding") })
+                        googleIdTokenResult = null
+                    }
+                }
+                NavHost(nav, startDestination = "splash") {
+                    composable("splash") {
+                        SplashScreen {
+                            scope.launch {
+                                val hasToken = tokens.accessToken.first() != null
+                                nav.navigate(if (hasToken) "home" else "auth") { popUpTo("splash") { inclusive = true } }
+                            }
+                        }
+                    }
+                    composable("auth") {
+                        val err by authVm.error.collectAsState()
+                        AuthScreen({ email, pass -> authVm.login(email, pass) { homeVm.load(); nav.navigate("home") } }, { googleLauncher.launch(googleClient.signInIntent) }, { email, pass -> pendingEmail = email; pendingPassword = pass; nav.navigate("onboarding") })
+                        if (err != null) { /* shown in AuthScreen error slot in full UI; kept as state here */ }
+                    }
+                    composable("onboarding") {
+                        val needsGoogle by authVm.needsGoogleOnboarding.collectAsState()
+                        OnboardingScreen { name, dob, interests, langs ->
+                            val body = mapOf("username" to name.lowercase().replace(" ", ""), "displayName" to name, "dateOfBirth" to dob, "country" to "PK")
+                            if (needsGoogle) {
+                                authVm.googleComplete(body) { homeVm.saveProfile(mapOf("interests" to interests, "languages" to langs)); nav.navigate("home") }
+                            } else {
+                                // Credentials collected on the Auth screen (not hardcoded),
+                                // combined here with the onboarding answers for registration.
+                                authVm.register(body + mapOf("email" to pendingEmail, "password" to pendingPassword)) {
+                                    homeVm.saveProfile(mapOf("interests" to interests, "languages" to langs)); nav.navigate("home")
+                                }
+                            }
+                        }
+                    }
+                    composable("home") {
+                        LaunchedEffect(Unit) {
+                            videoVm.connectSignaling { sid, pid, initiator -> pendingMatch = Triple(sid, pid, initiator); nav.navigate("video") }
+                            homeVm.load()
+                        }
+                        HomeScreen(profile, { requestCallPermissions { nav.navigate("matching") } }, { nav.navigate("profile") }, { nav.navigate("connections") }, { nav.navigate("profile") })
+                    }
+                    composable("matching") {
+                        MatchingScreen { matchVm.cancel(); nav.popBackStack() }
+                        LaunchedEffect(Unit) { matchVm.start { /* signalling will emit match_found */ } }
+                    }
+                    composable("video") {
+                        VideoChatScreen(
+                            callState, videoVm.icebreakers(profile?.interests ?: emptyList()),
+                            onNext = { videoVm.next { nav.navigate("matching") } },
+                            onEnd = { videoVm.endCall(); nav.navigate("home") },
+                            onMute = { micOn = !micOn; videoVm.toggleMic(micOn) },
+                            onCamera = { camOn = !camOn; videoVm.toggleCamera(camOn) },
+                            onSwitch = { videoVm.switchCamera() },
+                            onReport = { videoVm.report("other") { nav.navigate("home") } },
+                            onBlock = { videoVm.block { nav.navigate("home") } },
+                            onFavorite = { videoVm.favorite() },
+                            eglContext = videoVm.webrtc.eglContext,
+                            localTrack = localTrack,
+                            remoteTrack = remoteTrack
+                        )
+                    }
+                    composable("profile") { ProfileScreen(profile, { scope.launch { /* confirm in UI, then delete */ } }, { authVm.logout(); nav.navigate("auth") }) }
+                    composable("connections") { ConnectionsScreen { nav.popBackStack() } }
+                }
+            }
+        }
+    }
+    private fun requestCallPermissions(onGranted: () -> Unit) {
+        val needed = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isEmpty()) onGranted() else permissionLauncher.launch(needed.toTypedArray())
+    }
+    override fun onPause() {
+        super.onPause()
+        // Production wiring: pause the local video track here so camera/mic
+        // are released when backgrounded, and resume on return.
+    }
+}

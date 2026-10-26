@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VibeMeet</string>
+    <string name="start_matching">START MATCHING</string>
+    <string name="finding_someone">Finding someone for you…</string>
+    <string name="next">NEXT</string>
+    <string name="report">Report</string>
+    <string name="block">Block</string>
+    <string name="no_users_available">No users available right now.</string>
+    <string name="poor_connection">Poor connection.</string>
+    <string name="camera_permission_required">Camera permission required.</string>
+    <string name="microphone_permission_required">Microphone permission required.</string>
+    <string name="something_went_wrong">Something went wrong. Try again.</string>
+    <string name="must_be_18">You must be 18 or older to use VibeMeet.</string>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VibeMeet</string>
+    <string name="start_matching">میچنگ شروع کریں</string>
+    <string name="finding_someone">آپ کے لیے کسی کو تلاش کیا جا رہا ہے…</string>
+    <string name="next">اگلا</string>
+    <string name="report">رپورٹ کریں</string>
+    <string name="block">بلاک کریں</string>
+    <string name="no_users_available">اس وقت کوئی صارف دستیاب نہیں ہے۔</string>
+    <string name="poor_connection">کنکشن کمزور ہے۔</string>
+    <string name="camera_permission_required">کیمرہ کی اجازت درکار ہے۔</string>
+    <string name="microphone_permission_required">مائیکروفون کی اجازت درکار ہے۔</string>
+    <string name="something_went_wrong">کچھ غلط ہو گیا۔ دوبارہ کوشش کریں۔</string>
+    <string name="must_be_18">VibeMeet استعمال کرنے کے لیے آپ کی عمر 18 سال یا زیادہ ہونی چاہیے۔</string>
+</resources>
