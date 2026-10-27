@@ -30,6 +30,7 @@ services:
   - type: keyvalue
     name: vibemeet-cache
     plan: free
+    ipAllowList: [] # Only allow internal connections from Render services
 databases:
   - name: vibemeet-db
     databaseName: vibemeet
