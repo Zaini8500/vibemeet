@@ -16,7 +16,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 /** Base URL: change this to your deployed backend before a release build.
  *  Do NOT point a release build at localhost — a phone cannot reach it. */
-const val BASE_URL = "http://10.0.2.2:8080/"
+const val BASE_URL = "https://vibemeet-backend-qrkp.onrender.com/"
 @Module @InstallIn(SingletonComponent::class) object AppModule {
     @Provides @Singleton fun provideTokenStore(@ApplicationContext ctx: Context): TokenStore = TokenStore(ctx)
     @Provides @Singleton fun provideApi(tokens: TokenStore): VibeMeetApi {
