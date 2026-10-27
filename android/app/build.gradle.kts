@@ -34,7 +34,9 @@ dependencies {
     implementation("io.github.webrtc-sdk:android:114.5735.11")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("com.android.billingclient:billing-ktx:7.0.0")
-    implementation("com.google.android.gms:play-services-ads:23.0.0")
+    // play-services-ads intentionally NOT included: AdMob is not used in any
+    // screen yet, and its auto-init provider requires an AdMob APPLICATION_ID
+    // in the manifest — without one it can crash the app at launch.
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     testImplementation("junit:junit:4.13.2")
 }

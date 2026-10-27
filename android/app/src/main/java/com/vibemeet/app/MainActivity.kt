@@ -32,7 +32,13 @@ import kotlinx.coroutines.launch
     // hands it to AuthViewModel.google() (existing user -> home, new user ->
     // onboarding, then /auth/google/complete). The token is never stored.
     private var googleIdTokenResult by mutableStateOf<String?>(null)
-    private lateinit var googleClient: GoogleSignInClient
+    // Created lazily on first Google tap only, never at launch: creating the
+    // Google sign-in client in onCreate is unnecessary work before the user
+    // ever taps Google, and can fail on devices with outdated Play Services.
+    private val googleClient: GoogleSignInClient by lazy {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(BuildConfig.GOOGLE_SERVER_CLIENT_ID).requestEmail().build()
+        GoogleSignIn.getClient(this, gso)
+    }
     private val googleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         try {
             val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
@@ -44,11 +50,6 @@ import kotlinx.coroutines.launch
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // IMPORTANT: requestIdToken needs the *Web* OAuth client ID from Google
-        // Cloud Console (not the Android client ID). Replace
-        // GOOGLE_SERVER_CLIENT_ID in app/build.gradle.kts before release.
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(BuildConfig.GOOGLE_SERVER_CLIENT_ID).requestEmail().build()
-        googleClient = GoogleSignIn.getClient(this, gso)
         setContent {
             VibeMeetTheme {
                 val nav = rememberNavController()
@@ -85,8 +86,14 @@ import kotlinx.coroutines.launch
                     composable("splash") {
                         SplashScreen {
                             scope.launch {
-                                val hasToken = tokens.accessToken.first() != null
-                                nav.navigate(if (hasToken) "home" else "auth") { popUpTo("splash") { inclusive = true } }
+                                // A token-read failure must never crash the
+                                // app: fall back to the login screen.
+                                val dest = try {
+                                    if (tokens.accessToken.first() != null) "home" else "auth"
+                                } catch (_: Exception) { "auth" }
+                                try {
+                                    nav.navigate(dest) { popUpTo("splash") { inclusive = true } }
+                                } catch (_: Exception) { nav.navigate("auth") }
                             }
                         }
                     }
