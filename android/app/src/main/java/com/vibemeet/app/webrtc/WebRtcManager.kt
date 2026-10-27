@@ -66,21 +66,21 @@ class WebRtcManager(private val context: Context) {
     fun localTrack(): VideoTrack? = localVideo
     fun createOffer(onOffer: (SessionDescription) -> Unit) {
         val pc = peer ?: error("init() first")
-        pc.createOffer(MediaConstraints(), object : SdpObserver {
+        pc.createOffer(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription) {
                 pc.setLocalDescription(SimpleSdpObserver(), d); onOffer(d)
             }
             override fun onSetSuccess() {}; override fun onCreateFailure(e: String) {}; override fun onSetFailure(e: String) {}
-        })
+        }, MediaConstraints())
     }
     fun createAnswer(onAnswer: (SessionDescription) -> Unit) {
         val pc = peer ?: error("init() first")
-        pc.createAnswer(MediaConstraints(), object : SdpObserver {
+        pc.createAnswer(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription) {
                 pc.setLocalDescription(SimpleSdpObserver(), d); onAnswer(d)
             }
             override fun onSetSuccess() {}; override fun onCreateFailure(e: String) {}; override fun onSetFailure(e: String) {}
-        })
+        }, MediaConstraints())
     }
     fun setRemoteDescription(desc: SessionDescription, onSet: () -> Unit = {}) {
         peer?.setRemoteDescription(object : SdpObserver {

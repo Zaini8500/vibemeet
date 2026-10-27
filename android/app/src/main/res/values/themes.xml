@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- XML application theme required by AndroidManifest (the in-app theme is
+     the Compose VibeMeetTheme in ui/theme/Theme.kt with the same brand colors).
+     Added Oct 27, 2026: the project had no themes.xml, so AAPT resource
+     linking failed with "resource style/Theme.VibeMeet not found".
+     Note: Compose Material3 ships no XML themes, so the parent is the
+     platform Material theme with android: attributes only. -->
+<resources>
+    <style name="Theme.VibeMeet" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#6C4CF1</item>
+        <item name="android:colorPrimaryDark">#5A3BD8</item>
+        <item name="android:colorAccent">#FF6B9D</item>
+        <item name="android:statusBarColor">#6C4CF1</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

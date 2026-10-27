@@ -28,7 +28,10 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0"); implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.socket:socket.io-client:2.1.1")
-    implementation("org.webrtc:google-webrtc:1.0.32006")
+    // org.webrtc:google-webrtc is no longer published on Maven Central (0 results);
+    // io.github.webrtc-sdk:android ships the same org.webrtc package (M114, close
+    // to the original M106-era code) and is on Maven Central.
+    implementation("io.github.webrtc-sdk:android:114.5735.11")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("com.android.billingclient:billing-ktx:7.0.0")
     implementation("com.google.android.gms:play-services-ads:23.0.0")
