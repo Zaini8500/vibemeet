@@ -28,13 +28,31 @@ import org.webrtc.SessionDescription
     private val _loading = MutableStateFlow(false); val loading: StateFlow<Boolean> = _loading
     private val _error = MutableStateFlow<String?>(null); val error: StateFlow<String?> = _error
     private val _authed = MutableStateFlow(false); val authed: StateFlow<Boolean> = _authed
+    fun setError(message: String) { _error.value = message }
+    fun clearError() { _error.value = null }
+    /** Friendly, visible error text for backend failures. Returns null when
+     *  no specific mapping applies, so the caller keeps its own message. */
+    private fun mappedError(e: Exception, google: Boolean): String? {
+        if (e is retrofit2.HttpException) {
+            return when (e.code()) {
+                409 -> "Email or username already taken — try Log in instead"
+                400 -> "Check your name (3+ letters) and date of birth in YYYY-MM-DD format, and that you are 18 or older"
+                429 -> "Too many tries — wait a bit and try again"
+                403 -> "You must be 18 or older"
+                501 -> if (google) "Google sign-in is not set up yet" else "This feature is not set up yet — try again later"
+                else -> null
+            }
+        }
+        if (google) return "Google sign-in failed — try email instead"
+        return null
+    }
     fun login(email: String, password: String, onDone: () -> Unit) = viewModelScope.launch {
         _loading.value = true; _error.value = null
-        try { repo.login(email, password); _authed.value = true; onDone() } catch (e: Exception) { _error.value = "Login failed. Check your email and password, then try again." } finally { _loading.value = false }
+        try { repo.login(email, password); _authed.value = true; onDone() } catch (e: Exception) { _error.value = mappedError(e, false) ?: "Login failed. Check your email and password, then try again." } finally { _loading.value = false }
     }
     fun register(body: Map<String, Any>, onDone: () -> Unit) = viewModelScope.launch {
         _loading.value = true; _error.value = null
-        try { repo.register(body); _authed.value = true; onDone() } catch (e: Exception) { _error.value = "Could not create your account. That email or username may already be taken." } finally { _loading.value = false }
+        try { repo.register(body); _authed.value = true; onDone() } catch (e: Exception) { _error.value = mappedError(e, false) ?: "Could not create your account. That email or username may already be taken." } finally { _loading.value = false }
     }
     // Google flow: existing user -> authed. New user -> backend returns 428
     // onboarding_required; the idToken is kept in memory only (never stored)
@@ -46,15 +64,15 @@ import org.webrtc.SessionDescription
         try { repo.google(idToken); _authed.value = true; onAuthed() }
         catch (e: retrofit2.HttpException) {
             if (e.code() == 428) { _googleIdToken.value = idToken; _needsGoogleOnboarding.value = true; onNeedsOnboarding() }
-            else _error.value = "Google sign-in failed. Try again."
-        } catch (e: Exception) { _error.value = "Google sign-in failed. Try again." }
+            else _error.value = mappedError(e, true) ?: "Google sign-in failed — try email instead"
+        } catch (e: Exception) { _error.value = mappedError(e, true) ?: "Google sign-in failed — try email instead" }
         finally { _loading.value = false }
     }
     fun googleComplete(body: Map<String, Any>, onDone: () -> Unit) = viewModelScope.launch {
         val token = _googleIdToken.value ?: return@launch
         _loading.value = true; _error.value = null
         try { repo.googleComplete(token, body); _needsGoogleOnboarding.value = false; _authed.value = true; onDone() }
-        catch (e: Exception) { _error.value = "Could not finish Google sign-up. Try again." }
+        catch (e: Exception) { _error.value = mappedError(e, true) ?: "Could not finish Google sign-up. Try again." }
         finally { _loading.value = false }
     }
     fun logout() = viewModelScope.launch { repo.logout(); _authed.value = false; _googleIdToken.value = null; _needsGoogleOnboarding.value = false }
@@ -65,8 +83,8 @@ import org.webrtc.SessionDescription
     fun load() = viewModelScope.launch {
         try { _profile.value = repo.myProfile() } catch (e: Exception) { _error.value = "Could not load your profile. Try again." }
     }
-    fun saveProfile(body: Map<String, Any>) = viewModelScope.launch {
-        try { _profile.value = repo.updateProfile(body) } catch (e: Exception) { _error.value = "Could not save your profile. Try again." }
+    fun saveProfile(body: Map<String, Any>, onDone: () -> Unit = {}) = viewModelScope.launch {
+        try { _profile.value = repo.updateProfile(body) } catch (e: Exception) { _error.value = "Could not save your profile. Try again." } finally { onDone() }
     }
 }
 @HiltViewModel class MatchingViewModel @Inject constructor(private val repo: VibeMeetRepository) : ViewModel() {

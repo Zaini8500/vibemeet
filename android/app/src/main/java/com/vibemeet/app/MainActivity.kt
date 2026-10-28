@@ -39,11 +39,17 @@ import kotlinx.coroutines.launch
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(BuildConfig.GOOGLE_SERVER_CLIENT_ID).requestEmail().build()
         GoogleSignIn.getClient(this, gso)
     }
+    // Set when Google sign-in itself fails (no idToken returned). It is
+    // forwarded into AuthViewModel inside setContent, so the user sees an
+    // error instead of a silent no-op. The Android OAuth client does not
+    // exist yet, so Google may still fail — the fix is visible feedback.
+    private var pendingGoogleError by mutableStateOf<String?>(null)
     private val googleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         try {
             val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
-            account.idToken?.let { googleIdTokenResult = it }
-        } catch (_: Exception) { /* user cancelled or sign-in failed; AuthViewModel error state is set on next attempt */ }
+            val token = account.idToken
+            if (token != null) googleIdTokenResult = token else pendingGoogleError = "Google sign-in failed — try email instead"
+        } catch (_: Exception) { pendingGoogleError = "Google sign-in failed — try email instead" }
     }
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.CAMERA] == true && granted[Manifest.permission.RECORD_AUDIO] == true) pendingMatching = true
@@ -76,6 +82,9 @@ import kotlinx.coroutines.launch
                 LaunchedEffect(pendingMatching) {
                     if (pendingMatching) { pendingMatching = false; nav.navigate("matching") }
                 }
+                LaunchedEffect(pendingGoogleError) {
+                    pendingGoogleError?.let { authVm.setError(it); pendingGoogleError = null }
+                }
                 LaunchedEffect(googleIdTokenResult) {
                     googleIdTokenResult?.let { idToken ->
                         authVm.google(idToken, onAuthed = { homeVm.load(); nav.navigate("home") }, onNeedsOnboarding = { nav.navigate("onboarding") })
@@ -99,30 +108,54 @@ import kotlinx.coroutines.launch
                     }
                     composable("auth") {
                         val err by authVm.error.collectAsState()
-                        AuthScreen({ email, pass -> authVm.login(email, pass) { homeVm.load(); nav.navigate("home") } }, { googleLauncher.launch(googleClient.signInIntent) }, { email, pass -> pendingEmail = email; pendingPassword = pass; nav.navigate("onboarding") })
-                        if (err != null) { /* shown in AuthScreen error slot in full UI; kept as state here */ }
+                        val loading by authVm.loading.collectAsState()
+                        AuthScreen(
+                            { email, pass -> authVm.login(email, pass) { homeVm.load(); nav.navigate("home") } },
+                            { try { googleLauncher.launch(googleClient.signInIntent) } catch (_: Exception) { authVm.setError("Google sign-in failed — try email instead") } },
+                            { email, pass -> pendingEmail = email; pendingPassword = pass; nav.navigate("onboarding") },
+                            error = err,
+                            loading = loading
+                        )
                     }
                     composable("onboarding") {
                         val needsGoogle by authVm.needsGoogleOnboarding.collectAsState()
-                        OnboardingScreen { name, dob, interests, langs ->
-                            val body = mapOf("username" to name.lowercase().replace(" ", ""), "displayName" to name, "dateOfBirth" to dob, "country" to "PK")
-                            if (needsGoogle) {
-                                authVm.googleComplete(body) { homeVm.saveProfile(mapOf("interests" to interests, "languages" to langs)); nav.navigate("home") }
-                            } else {
-                                // Credentials collected on the Auth screen (not hardcoded),
-                                // combined here with the onboarding answers for registration.
-                                authVm.register(body + mapOf("email" to pendingEmail, "password" to pendingPassword)) {
-                                    homeVm.saveProfile(mapOf("interests" to interests, "languages" to langs)); nav.navigate("home")
+                        val onbErr by authVm.error.collectAsState()
+                        val onbLoading by authVm.loading.collectAsState()
+                        OnboardingScreen(
+                            onFinish = { name, dob, gender, interests, langs ->
+                                // Username: lowercase, letters/digits only. The
+                                // onboarding step already requires 3+ letters;
+                                // this is only a safety fallback, never sent invalid.
+                                val base = name.lowercase().filter { it.isLetterOrDigit() }
+                                val username = if (base.length >= 3) base else base + "user"
+                                // Backend gender enum: female/male/non_binary/prefer_not_to_say.
+                                val genderEnum = when (gender) {
+                                    "Female" -> "female"; "Male" -> "male"; "Non-binary" -> "non_binary"
+                                    else -> "prefer_not_to_say"
                                 }
-                            }
-                        }
+                                val body = mapOf("username" to username, "displayName" to name, "dateOfBirth" to dob, "country" to "PK", "gender" to genderEnum)
+                                val profileBody = mapOf("interests" to interests, "languages" to langs, "gender" to genderEnum)
+                                if (needsGoogle) {
+                                    authVm.googleComplete(body) { homeVm.saveProfile(profileBody) { homeVm.load(); nav.navigate("home") } }
+                                } else {
+                                    // Credentials collected on the Auth screen (not hardcoded),
+                                    // combined here with the onboarding answers for registration.
+                                    authVm.register(body + mapOf("email" to pendingEmail, "password" to pendingPassword)) {
+                                        homeVm.saveProfile(profileBody) { homeVm.load(); nav.navigate("home") }
+                                    }
+                                }
+                            },
+                            error = onbErr,
+                            loading = onbLoading
+                        )
                     }
                     composable("home") {
+                        val homeError by homeVm.error.collectAsState()
                         LaunchedEffect(Unit) {
                             videoVm.connectSignaling { sid, pid, initiator -> pendingMatch = Triple(sid, pid, initiator); nav.navigate("video") }
                             homeVm.load()
                         }
-                        HomeScreen(profile, { requestCallPermissions { nav.navigate("matching") } }, { nav.navigate("profile") }, { nav.navigate("connections") }, { nav.navigate("profile") })
+                        HomeScreen(profile, { requestCallPermissions { nav.navigate("matching") } }, { nav.navigate("profile") }, { nav.navigate("connections") }, { nav.navigate("profile") }, error = homeError, onRetry = { homeVm.load() })
                     }
                     composable("matching") {
                         MatchingScreen { matchVm.cancel(); nav.popBackStack() }
